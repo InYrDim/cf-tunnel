@@ -1,0 +1,102 @@
+# Cloudflare Tunnel + Nginx backend
+# ------------------------------------------------------------------------
+# tunnel  cloudflared connector. Makes an outbound-only connection to
+#         Cloudflare's edge — no inbound ports are opened on the host.
+# web     Minimal Nginx backend the tunnel talks to by default. Swap it
+#         for your own app, or point this tunnel's public hostname
+#         (configured in the Zero Trust dashboard) at any other container
+#         on the `cloudflare-bridge` network instead.
+#
+# Image tags are pinned on purpose — `:latest` is not reproducible and can
+# silently pull a breaking or compromised build, which matters even more
+# in a public repo. Bump versions deliberately (Renovate/Dependabot can
+# automate this) instead of floating on `:latest`.
+
+services:
+  tunnel:
+    image: cloudflare/cloudflared:2026.8.2
+    container_name: cf-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # cloudflared automatically reads the connector token from TUNNEL_TOKEN.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in your .env file}
+      # Enables a local-only /ready endpoint so Compose can healthcheck the
+      # tunnel natively, with no curl/wget install needed.
+      TUNNEL_METRICS: 0.0.0.0:2000
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - default
+      - cloudflare-bridge
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+
+  web:
+    image: nginx:1.30-alpine
+    container_name: cf-web
+    restart: unless-stopped
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    # Intentionally NOT published to the host (no `ports:` here). It's only
+    # reachable from the `tunnel` service over the internal Docker network,
+    # so the only way in from the internet is through Cloudflare.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      # Needed for the master process to drop from root to the unprivileged
+      # `nginx` worker user. Add NET_BIND_SERVICE back only if you change
+      # the listen port below to something under 1024.
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 64M
+
+networks:
+  cloudflare-bridge:
+    external: true

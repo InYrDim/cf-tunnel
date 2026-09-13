@@ -1,0 +1,26 @@
+name: gitleaks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *" # daily at 04:00 UTC, catches history added another way
+
+jobs:
+  scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # scan full history, not just the latest commit
+
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE is only required for organization-owned repos,
+          # not personal accounts. Add it as a repo secret if needed:
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
