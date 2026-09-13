@@ -119,6 +119,9 @@ docker compose logs -f      # view logs
 docker compose ps           # check health status
 docker compose down         # stop and remove containers
 docker compose restart      # restart services
+
+# Inspect connected container to cloudflare-bridge network
+docker network inspect cloudflare-bridge --format '{{json .Containers}}' | jq 
 ```
 
 ## License
@@ -126,3 +129,5 @@ docker compose restart      # restart services
 No license file is included yet — add a `LICENSE` (e.g. MIT, Apache-2.0)
 before treating this as open source; without one, default copyright
 applies and others technically can't reuse the code even in a public repo.
+
+
